@@ -182,7 +182,7 @@ func (p *Polo) updateOrderbook() {
 	p.Orderbook.Bids = OrderArr(tmp).Reverse()
 	p.Orderbook.Timestamp = time.Now().Unix()
 	p.Orderbook.IsValid = true
-	fmt.Printf("%+v", p.Orderbook)
+	fmt.Printf("%+v\n", p.Orderbook)
 }
 
 func main() {
