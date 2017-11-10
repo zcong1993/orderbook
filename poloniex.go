@@ -17,7 +17,7 @@ const (
 	ORDER      = "o"
 	HISTORY    = "t"
 	REMOVE     = "0.00000000"
-	SELLSIDE   = "1"
+	SELLSIDE   = "0"
 	BUYSIDE    = "1"
 )
 
@@ -79,6 +79,7 @@ func (p *Polo) Handler() {
 	for {
 		_, message, err := p.rc.ReadMessage()
 		if err != nil {
+			p.Orderbook.IsValid = false
 			log.Println("read:", err)
 			time.Sleep(p.rc.RecIntvlMin)
 			p.Handler()
@@ -112,6 +113,7 @@ func (p *Polo) Handler() {
 					pre, _ := strconv.ParseInt(p.Orderbook.Version, 10, 64)
 					new, _ := strconv.ParseInt(Interface2String(arr[1]), 10, 64)
 					if new != pre+1 {
+						p.Orderbook.IsValid = false
 						p.Handler()
 						return
 					}
