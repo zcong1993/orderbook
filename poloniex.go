@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/bitly/go-simplejson"
-	"github.com/mariuspass/recws"
+	"github.com/gorilla/websocket"
 	"log"
 	"sort"
 	"strconv"
@@ -38,11 +38,12 @@ type Orderbook struct {
 
 type Polo struct {
 	ws_url  string
-	rc      *recws.RecConn
+	ws      *websocket.Conn
 	cmds    []interface{}
 	bidsMap map[string]interface{}
 	asksMap map[string]interface{}
 	channel string
+	done    chan struct{}
 	Orderbook
 }
 
@@ -55,34 +56,43 @@ func Interface2String(in interface{}) string {
 	return fmt.Sprintf("%s", in)
 }
 
-func NewPolo(channel string) *Polo {
-	polo := &Polo{ws_url: ws_url, channel: channel}
+func NewPolo(channel string, done chan struct{}) *Polo {
+	polo := &Polo{ws_url: ws_url, channel: channel, done: done}
 	polo.Orderbook.IsValid = false
 	polo.Connect()
 	return polo
 }
 
 func (p *Polo) Connect() {
-	rc := &recws.RecConn{RecIntvlFactor: 1}
-	p.rc = rc
-	p.rc.Dial(p.ws_url, nil)
+	c, _, err := websocket.DefaultDialer.Dial(p.ws_url, nil)
+	if err != nil {
+		p.Orderbook.IsValid = false
+		p.done <- struct{}{}
+		return
+	}
+	p.ws = c
 	p.Handler()
 }
 
 func (p *Polo) Subscribe(channel string) {
 	subscribeCmd := &WSCommand{"subscribe", channel}
-	p.rc.WriteJSON(subscribeCmd)
+	err := p.ws.WriteJSON(subscribeCmd)
+	if err != nil {
+		p.Orderbook.IsValid = false
+		log.Println("write:", err)
+		p.done <- struct{}{}
+		return
+	}
 }
 
 func (p *Polo) Handler() {
 	p.Subscribe(p.channel)
 	for {
-		_, message, err := p.rc.ReadMessage()
+		_, message, err := p.ws.ReadMessage()
 		if err != nil {
 			p.Orderbook.IsValid = false
 			log.Println("read:", err)
-			time.Sleep(p.rc.RecIntvlMin)
-			p.Handler()
+			p.done <- struct{}{}
 			return
 		}
 		log.Printf("recv1: %s", message)
@@ -114,7 +124,7 @@ func (p *Polo) Handler() {
 					new, _ := strconv.ParseInt(Interface2String(arr[1]), 10, 64)
 					if new != pre+1 {
 						p.Orderbook.IsValid = false
-						p.Handler()
+						p.done <- struct{}{}
 						return
 					}
 					p.Orderbook.Version = Interface2String(arr[1])
@@ -186,5 +196,13 @@ func (p *Polo) updateOrderbook() {
 }
 
 func main() {
-	NewPolo("BTC_BCH")
+	done := make(chan struct{})
+	go NewPolo("BTC_BCH", done)
+	for {
+		select {
+		case <-done:
+			time.Sleep(time.Second * 2)
+			go NewPolo("BTC_BCH", done)
+		}
+	}
 }
